@@ -11,6 +11,12 @@
 #define MOTOR2 26   //RPi pins connected to motor driver
 #define ENCODERA 17		// Hall Sensor 
 #define ENCODERB 27		// Hall Sensor B
+#define PULSEPIN 18 //Pulse Pin of DAQ machine
+
+//Pulsepin
+int toggle = 0;
+int toggle_before = 0;
+int pulsePin;
 
 //PID GAINS//
 #define PGAIN 400 //Proportional gain (Kp)
@@ -65,6 +71,14 @@ void funcEncoderB()
     errorPosition = referencePosition - redGearPosition;
     printf("refPos: %f gearPos: %f  err: %f\n",
         referencePosition, redGearPosition, errorPosition);
+}
+
+void funcPulsePin()
+{
+    pulsePin = digitalRead(PULSEPIN);
+    if (pulsePin == HIGH){
+        toggle++;
+    }
 }
 
 
@@ -123,6 +137,29 @@ int main()
     } //원하는 refPosition들이 담긴 array 가 하나 있는 상태
 
 
+    //for pulse input
+    wiringPiSetupGpio();
+    pinMode(PULSEPIN, INPUT);		// Set PINPULSE as input
+    wiringPiISR(PULSEPIN, INT_EDGE_RISING, funcPulsePin);
+    pinMode(ENCODERA, INPUT);		// Set ENCODERA as input
+    pinMode(ENCODERB, INPUT);		// Set ENCODERB as input
+
+    softPwmCreate(MOTOR1, 0, 100);		// Create soft Pwm
+    softPwmCreate(MOTOR2, 0, 100); 	// Create soft Pwm
+
+    wiringPiISR(ENCODERA, INT_EDGE_BOTH, funcEncoderB);
+    wiringPiISR(ENCODERB, INT_EDGE_BOTH, funcEncoderA);
+    
+    //wait until first pinPulse toggle
+    while(1)
+    {
+        if(toggle != toggle_before){
+            break;
+        }
+        //printf("PULSE: %d", toggle);
+    }
+    toggle_before = toggle;
+
     //이젠 for loop 선언할거임 (iterating through i of refPosArray)
     //for loop iterate through i 
     for(int i = 0; i < num; i++){ 
@@ -135,15 +172,15 @@ int main()
         errorPosition = referencePosition - redGearPosition;
 
         //여기안에 Encoder A,B담긴 함수 넣어주고,
-        wiringPiSetupGpio();
-        pinMode(ENCODERA, INPUT);		// Set ENCODERA as input
-        pinMode(ENCODERB, INPUT);		// Set ENCODERB as input
+        // wiringPiSetupGpio();
+        // pinMode(ENCODERA, INPUT);		// Set ENCODERA as input
+        // pinMode(ENCODERB, INPUT);		// Set ENCODERB as input
 
-        softPwmCreate(MOTOR1, 0, 100);		// Create soft Pwm
-        softPwmCreate(MOTOR2, 0, 100); 	// Create soft Pwm
+        // softPwmCreate(MOTOR1, 0, 100);		// Create soft Pwm
+        // softPwmCreate(MOTOR2, 0, 100); 	// Create soft Pwm
 
-        wiringPiISR(ENCODERA, INT_EDGE_BOTH, funcEncoderA);
-        wiringPiISR(ENCODERB, INT_EDGE_BOTH, funcEncoderB);
+        // wiringPiISR(ENCODERA, INT_EDGE_BOTH, funcEncoderB);
+        // wiringPiISR(ENCODERB, INT_EDGE_BOTH, funcEncoderA);
 
         float integral = 0;
         float prevError = 0;
@@ -153,7 +190,9 @@ int main()
         int checkTimeBefore = millis();
         //while ITAE 시간
         int whileStartTime = millis();
-        while(millis()-whileStartTime < STOP_TIMER){
+
+        //while true, break if pinPulse toggled
+        while(1){
             checkTime = millis(); //checkTime is used to check time when while loop starts
             if (checkTime - checkTimeBefore > LOOPTIME){
 
@@ -178,13 +217,13 @@ int main()
                 //이제 구동
                 if (errorPosition > 0)
                 {
-                    softPwmWrite(MOTOR1, controlOutput);
-                    softPwmWrite(MOTOR2, 0);
+                    softPwmWrite(MOTOR2, controlOutput);
+                    softPwmWrite(MOTOR1, 0);
                 }
                 else
                 {
-                    softPwmWrite(MOTOR2, -controlOutput); //minus added since we have to go the other way
-                    softPwmWrite(MOTOR1, 0);
+                    softPwmWrite(MOTOR1, -controlOutput); //minus added since we have to go the other way
+                    softPwmWrite(MOTOR2, 0);
                 }
                 
                 //update prevError
@@ -197,10 +236,13 @@ int main()
                 updateDataArray(); ///DATA LOGGING
                 checkTimeBefore = checkTime;
 
-
+            if(toggle != toggle_before){
+                break;
+            }
             }//if loop end
 
         }//while loop end
+        toggle_before = toggle;    
         itaeArray[i] = itae;
     }//for loop end (refPosArray ith element)
 
@@ -217,6 +259,3 @@ int main()
 
     return 0;
 }
-
-
-
