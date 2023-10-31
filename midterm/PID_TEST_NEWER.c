@@ -19,18 +19,20 @@ int toggle_before = 0;
 int pulsePin;
 
 //PID GAINS//
-#define PGAIN 400 //Proportional gain (Kp)
-#define IGAIN 0.01  //Integral gain (Ki)
-#define DGAIN 150 // Derivative gain (Kd)
+#define PGAIN 3000 //Proportional gain (Kp)
+#define IGAIN 0  //Integral gain (Ki)
+#define DGAIN 20000 // Derivative gain (Kd)
 
 //ENCODER RELATED//
-#define ENC2REDGEAR 216
+#define ENC2REDGEAR 218.7668 //Gear reduction rate compensation (Not exactly 216 in real-life)
 int encA;
 int encB;
 int encoderPosition = 0;
 float redGearPosition = 0;
 float referencePosition = 0;
 float errorPosition = 0;
+float prevErrorPosition = 0; //ADDED IN DOUBLE PID
+
 
 //DEFINE ENCODER VOID FUNCTIONS
 void funcEncoderA()
@@ -47,10 +49,6 @@ void funcEncoderA()
         if (encB == LOW) encoderPosition--;
         else encoderPosition++;
     }
-    redGearPosition = (float)encoderPosition / ENC2REDGEAR;
-    errorPosition = referencePosition - redGearPosition;
-    printf("refPos: %f gearPos: %f  err: %f\n",
-        referencePosition, redGearPosition, errorPosition);
 }
 
 void funcEncoderB()
@@ -67,10 +65,6 @@ void funcEncoderB()
         if (encA == LOW) encoderPosition++;
         else encoderPosition--;
     }
-    redGearPosition = (float)encoderPosition / ENC2REDGEAR;
-    errorPosition = referencePosition - redGearPosition;
-    printf("refPos: %f gearPos: %f  err: %f\n",
-        referencePosition, redGearPosition, errorPosition);
 }
 
 void funcPulsePin()
@@ -85,7 +79,7 @@ void funcPulsePin()
 //NUMBER OF ITERATIONS
 int num;
 
-#define STOP_TIMER 10000 //maximum time for ITAE stop condition
+#define STOP_TIMER 3000 //maximum time for ITAE stop condition
 
 int checkTime = 0; //used to check time when control while loop starts. Used for datalogging as well.
 
@@ -115,7 +109,6 @@ int main()
     scanf("%s", filename);
     file = fopen(strcat(filename,".csv"), "w+");
     //
-
 
     //미지수 몇 개 --> nums (scanf로 받기)
     printf("Enter the number of reference positions: ");
@@ -168,46 +161,32 @@ int main()
 
         //Define ref for this iteration
         referencePosition = refPosArray[i];
-        //define position error
-        errorPosition = referencePosition - redGearPosition;
 
-        //여기안에 Encoder A,B담긴 함수 넣어주고,
-        // wiringPiSetupGpio();
-        // pinMode(ENCODERA, INPUT);		// Set ENCODERA as input
-        // pinMode(ENCODERB, INPUT);		// Set ENCODERB as input
-
-        // softPwmCreate(MOTOR1, 0, 100);		// Create soft Pwm
-        // softPwmCreate(MOTOR2, 0, 100); 	// Create soft Pwm
-
-        // wiringPiISR(ENCODERA, INT_EDGE_BOTH, funcEncoderB);
-        // wiringPiISR(ENCODERB, INT_EDGE_BOTH, funcEncoderA);
 
         float integral = 0;
         float prevError = 0;
         float itae = 0;
-        
         //checking if looptime has past or not
         int checkTimeBefore = millis();
         //while ITAE 시간
         int whileStartTime = millis();
-
         //while true, break if pinPulse toggled
         while(1){
             checkTime = millis(); //checkTime is used to check time when while loop starts
             if (checkTime - checkTimeBefore > LOOPTIME){
-
-                //P,I,D관련 정의
-
-
-                integral += errorPosition*LOOPTIME;
+                redGearPosition = (float)encoderPosition / ENC2REDGEAR;
+                //define position error
+                errorPosition = referencePosition - redGearPosition;
+                //outer loop (position) PID
+                integral += errorPosition*(checkTime - checkTimeBefore);
                 //Calculate derivative
-                float derivative = (errorPosition - prevError) / LOOPTIME;
+                float derivative = (errorPosition - prevError) / (checkTime - checkTimeBefore);
 
                 //PWM value output (PID)
                 float controlOutput = (errorPosition * PGAIN) + (integral * IGAIN) + (derivative * DGAIN);
 
                 //calculate ITAE
-                itae += (millis()-whileStartTime) * fabs(errorPosition) * (LOOPTIME);
+                itae += ((checkTime-whileStartTime)) * fabs(errorPosition) * (checkTime - checkTimeBefore);
 
                 printf("Reference Position: %f\n", referencePosition);
                 printf("PWM: %f\n", controlOutput);
@@ -226,12 +205,15 @@ int main()
                     softPwmWrite(MOTOR2, 0);
                 }
                 
-                //update prevError
+                //update prevError for position
                 prevError = errorPosition;
+
                 if (errorPosition == 0)
-                {
-                    integral = 0; // prevents integral term to accumulate. if integral term is too large, system will be unstable/
+                { 
+                    integral = 0; // prevents integral term to accumulate. if integral term is too large, system will be unstable
                 }
+
+
                 
                 updateDataArray(); ///DATA LOGGING
                 checkTimeBefore = checkTime;
@@ -246,10 +228,16 @@ int main()
         itaeArray[i] = itae;
     }//for loop end (refPosArray ith element)
 
+    float totalITAE=0;
     for(int i = 0; i < num; i++) {
-        printf("%f ", itaeArray[i]);
+        totalITAE += itaeArray[i];
+        //printf("%f ", itaeArray[i]);
         fprintf(file, "%.3f, ", itaeArray[i]);
     }     
+
+    totalITAE = totalITAE/1000000.0f;
+
+    printf("\n\n\n\n\n\n\n\nTotal ITAE: %f", totalITAE);
     fprintf(file, "\n");
     for (int i = 0; i < dataIndex; i++)
     {
