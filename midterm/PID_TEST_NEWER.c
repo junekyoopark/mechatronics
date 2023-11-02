@@ -20,12 +20,12 @@ int toggle_before = 0;
 int pulsePin;
 
 //PID GAINS//
-#define PGAIN 3000 //Proportional gain (Kp)
+#define PGAIN 2500 //Proportional gain (Kp)
 #define IGAIN 0  //Integral gain (Ki)
 #define DGAIN 20000 // Derivative gain (Kd)
 
 //ENCODER RELATED//
-#define ENC2REDGEAR 218.7668 //Gear reduction rate compensation (Not exactly 216 in real-life)
+#define ENC2REDGEAR 219 //Gear reduction rate compensation (Not exactly 216 in real-life)
 int encA;
 int encB;
 int encoderPosition = 0;
